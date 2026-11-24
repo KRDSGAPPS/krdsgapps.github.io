@@ -161,5 +161,33 @@ service cloud.firestore {
       allow list: if false;
       allow create, update, delete: if isBootstrappedAdmin() && isValidId(uid);
     }
+
+    function isValidProjectRequest(data) {
+      return data.keys().hasAll([
+          'clientName', 'contactInfo', 'platform', 'projectTitle',
+          'message', 'status', 'createdAt'
+        ])
+        && data.keys().hasOnly([
+          'clientName', 'contactInfo', 'platform', 'projectTitle',
+          'message', 'status', 'createdAt'
+        ])
+        && data.clientName is string && data.clientName.size() >= 1 && data.clientName.size() <= 100
+        && data.contactInfo is string && data.contactInfo.size() >= 3 && data.contactInfo.size() <= 160
+        && data.platform is string && data.platform in ['android', 'desktop', 'both']
+        && data.projectTitle is string && data.projectTitle.size() >= 2 && data.projectTitle.size() <= 120
+        && data.message is string && data.message.size() >= 10 && data.message.size() <= 2000
+        && data.status == 'new'
+        && data.createdAt == request.time;
+    }
+
+    match /requests/{requestId} {
+      allow create: if isValidId(requestId) && isValidProjectRequest(incoming());
+      allow get, list: if isAdmin();
+      allow update: if isAdmin()
+        && isValidId(requestId)
+        && incoming().diff(existing()).affectedKeys().hasOnly(['status'])
+        && incoming().status in ['new', 'reviewed', 'done'];
+      allow delete: if isAdmin() && isValidId(requestId);
+    }
   }
 }

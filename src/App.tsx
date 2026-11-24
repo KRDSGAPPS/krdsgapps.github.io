@@ -27,6 +27,7 @@ import { AppItem, DeveloperSettings, Language, PageView } from './types';
 import { AppArtwork } from './components/AppArtwork';
 import { AppDetailModal } from './components/AppDetailModal';
 import { AdminPanel } from './components/AdminPanel';
+import { ProjectRequestForm } from './components/ProjectRequestForm';
 
 export default function App() {
   const [lang, setLang] = useState<Language>('ku');
@@ -972,6 +973,8 @@ export default function App() {
                 </div>
               </div>
             </div>
+
+            <ProjectRequestForm isKu={isKu} />
           </section>
         )}
       </main>
