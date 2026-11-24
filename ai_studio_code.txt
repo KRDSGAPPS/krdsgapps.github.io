@@ -1,0 +1,16 @@
+I have exported my SG Apps developer website from Google AI Studio into this folder. Please help me complete two tasks:
+
+### Task 1: Deploy the Website to GitHub Pages (`shakirgoran.github.io`)
+1. Connect this folder to my GitHub repository: https://github.com/shakirgoran/shakirgoran.github.io (backup or replace any old messy files on `main`).
+2. Verify that `.github/workflows/deploy.yml`, `vite.config.ts`, `public/app-ads.txt`, and `firebase-applet-config.json` are intact, and run `npm install && npm run build` locally to confirm zero build errors.
+3. Commit and push the project to the `main` branch of `shakirgoran/shakirgoran.github.io`.
+4. Remind me of any remaining browser steps needed (GitHub Settings -> Pages -> Source: GitHub Actions, and adding `shakirgoran.github.io` under Firebase Console -> Authentication -> Settings -> Authorized domains for project `gothic-flux-qdrm3`).
+
+### Task 2: Build a Personal Android Admin Companion App (Connected to the Same Database)
+In a separate subfolder or sibling project (e.g., `../sg-apps-admin-android`), create a clean Android app (Kotlin + Jetpack Compose, or Flutter) for my personal phone to manage this website's data without touching GitHub:
+1. Connect it to the exact same Firebase project (`gothic-flux-qdrm3`) and the named Firestore database ID `ai-studio-b24bc21b-a4c0-482d-90c8-879e1aefeb23` (CRITICAL: do NOT use the `(default)` Firestore database — initialize Firestore specifically with database ID `ai-studio-b24bc21b-a4c0-482d-90c8-879e1aefeb23`).
+2. Authenticate using Google Sign-In restricted to `shakirgoran@gmail.com`.
+3. Follow `firebase-blueprint.json` and `firestore.rules` in this repo strictly for all CRUD operations:
+   - Collection `/apps/{appId}`: required fields `slug`, `titleKu`, `titleEn`, `packageId`, `status` (`published` | `in_development` | `upcoming`), `category`, `summaryKu`, `summaryEn`, `playStoreUrl`, `githubUrl`, `iconUrl`, `privacyPolicyEn`, `privacyPolicyKu`, `accountDeletionInfo`, `dataCollected`, `version`, `sortOrder`, `ownerUid`, `createdAt`, `updatedAt` (use server timestamps and preserve immutable `ownerUid`/`createdAt` on updates).
+   - Document `/settings/profile`: required fields `brandNameKu`, `brandNameEn`, `heroTitleKu`, `heroTitleEn`, `nameKu`, `nameEn`, `roleKu`, `roleEn`, `bioKu`, `bioEn`, `locationKu`, `locationEn`, `email`, `playStoreDeveloperUrl`, `githubProfileUrl`, `appAdsTxt`, `globalPrivacyPolicyEn`, `globalPrivacyPolicyKu`, `ownerUid`, `updatedAt` (so I can also rename `SG Apps` and edit the hero headline from my phone).
+4. Include a "Play Console URLs" screen inside the Android app that displays and copies `https://shakirgoran.github.io/?privacy=<slug>` and `https://shakirgoran.github.io/?deletion=<slug>`, plus instructions/build steps to install the APK on my personal phone.
