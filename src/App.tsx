@@ -184,8 +184,9 @@ export default function App() {
     };
   }, []);
 
+  const isAppsLoading = cloudApps === null;
   const isCloudSeeded = Boolean(cloudApps && cloudApps.length > 0);
-  const apps = isCloudSeeded ? cloudApps! : DEFAULT_APPS;
+  const apps = isAppsLoading ? [] : isCloudSeeded ? cloudApps! : DEFAULT_APPS;
   const settings = cloudSettings || DEFAULT_DEVELOPER_SETTINGS;
   const brandName = isKu ? settings.brandNameKu : settings.brandNameEn;
 
@@ -631,7 +632,33 @@ export default function App() {
                 </div>
               </div>
 
-              {filteredApps.length === 0 ? (
+              {isAppsLoading ? (
+                <div
+                  className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"
+                  aria-label={isKu ? 'بارکردنی ئەپەکان...' : 'Loading applications...'}
+                >
+                  {[0, 1, 2, 3, 4, 5].map((idx) => (
+                    <div
+                      key={idx}
+                      className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 space-y-4 animate-pulse"
+                    >
+                      <div className="flex items-start justify-between gap-4">
+                        <div className="w-14 h-14 rounded-xl bg-zinc-200 dark:bg-zinc-800" />
+                        <div className="w-12 h-4 rounded bg-zinc-200 dark:bg-zinc-800" />
+                      </div>
+                      <div className="space-y-2">
+                        <div className="w-24 h-3 rounded bg-zinc-200 dark:bg-zinc-800" />
+                        <div className="w-40 h-5 rounded bg-zinc-200 dark:bg-zinc-800" />
+                        <div className="w-32 h-3 rounded bg-zinc-200 dark:bg-zinc-800" />
+                      </div>
+                      <div className="space-y-1.5">
+                        <div className="w-full h-3 rounded bg-zinc-200 dark:bg-zinc-800" />
+                        <div className="w-5/6 h-3 rounded bg-zinc-200 dark:bg-zinc-800" />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : filteredApps.length === 0 ? (
                 <div className="py-12 text-center border border-zinc-200 dark:border-zinc-800 rounded-2xl bg-white dark:bg-zinc-900">
                   <p className="text-sm text-zinc-500 dark:text-zinc-400">
                     {isKu
