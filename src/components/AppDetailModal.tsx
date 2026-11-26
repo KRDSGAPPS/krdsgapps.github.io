@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { ExternalLink, Shield, Trash2, X } from 'lucide-react';
+import { ExternalLink, Image as ImageIcon, MessageSquarePlus, Shield, Trash2, X } from 'lucide-react';
 import { AppItem, DeveloperSettings, Language } from '../types';
 import { AppArtwork } from './AppArtwork';
 
@@ -8,6 +8,7 @@ interface AppDetailModalProps {
   initialTab?: 'overview' | 'privacy' | 'deletion';
   lang: Language;
   settings: DeveloperSettings;
+  onRequestProject?: () => void;
   onClose: () => void;
 }
 
@@ -16,23 +17,32 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
   initialTab = 'overview',
   lang,
   settings,
+  onRequestProject,
   onClose,
 }) => {
   const [tab, setTab] = useState<'overview' | 'privacy' | 'deletion'>(initialTab);
   const [policyLang, setPolicyLang] = useState<Language>(lang === 'ku' ? 'en' : 'en');
+  const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
 
   useEffect(() => {
     setTab(initialTab);
+    setLightboxSrc(null);
   }, [initialTab, app?.id]);
 
   useEffect(() => {
     if (!app) return;
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
+      if (e.key === 'Escape') {
+        if (lightboxSrc) {
+          setLightboxSrc(null);
+        } else {
+          onClose();
+        }
+      }
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [app, onClose]);
+  }, [app, lightboxSrc, onClose]);
 
   if (!app) return null;
 
@@ -162,6 +172,36 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
                 </p>
               </div>
 
+              {app.screenshots && app.screenshots.length > 0 && (
+                <div className="space-y-2.5 pt-2 border-t border-zinc-200 dark:border-zinc-800">
+                  <div className="flex items-center gap-2 text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+                    <ImageIcon className="w-3.5 h-3.5 text-blue-600" />
+                    <span>
+                      {isKu
+                        ? `وێنەکان و ڕووکاری بەرنامە (${app.screenshots.length})`
+                        : `Screenshots (${app.screenshots.length})`}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                    {app.screenshots.map((src, idx) => (
+                      <button
+                        key={`${src.slice(0, 40)}-${idx}`}
+                        type="button"
+                        onClick={() => setLightboxSrc(src)}
+                        className="group relative aspect-video rounded-xl overflow-hidden border border-zinc-200 dark:border-zinc-800 bg-zinc-100 dark:bg-zinc-950 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      >
+                        <img
+                          src={src}
+                          alt={`${title} screenshot ${idx + 1}`}
+                          referrerPolicy="no-referrer"
+                          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
+                        />
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2 border-t border-zinc-200 dark:border-zinc-800">
                 <div>
                   <p className="text-xs text-zinc-500 dark:text-zinc-400">
@@ -215,6 +255,20 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
                     <span>GitHub Repository</span>
                     <ExternalLink className="w-4 h-4" />
                   </a>
+                )}
+                {onRequestProject && (
+                  <button
+                    type="button"
+                    onClick={onRequestProject}
+                    className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-teal-700 dark:text-teal-300 bg-teal-50 dark:bg-teal-950/50 border border-teal-200 dark:border-teal-800 hover:bg-teal-100 dark:hover:bg-teal-900/50 rounded-lg transition-colors whitespace-nowrap shrink-0"
+                  >
+                    <MessageSquarePlus className="w-4 h-4" />
+                    <span>
+                      {isKu
+                        ? 'داواکردنی ئەم سیستەمە / بەرنامەی هاوشێوە'
+                        : 'Request This System / Similar App'}
+                    </span>
+                  </button>
                 )}
               </div>
             </>
@@ -315,6 +369,29 @@ export const AppDetailModal: React.FC<AppDetailModalProps> = ({
           )}
         </div>
       </div>
+
+      {lightboxSrc && (
+        <div
+          className="fixed inset-0 z-[60] bg-black/85 flex items-center justify-center p-4"
+          onClick={() => setLightboxSrc(null)}
+        >
+          <button
+            type="button"
+            onClick={() => setLightboxSrc(null)}
+            aria-label={isKu ? 'داخستن' : 'Close'}
+            className="absolute top-4 right-4 p-2 rounded-full bg-white/10 text-white hover:bg-white/20"
+          >
+            <X className="w-6 h-6" />
+          </button>
+          <img
+            src={lightboxSrc}
+            alt="Screenshot preview"
+            referrerPolicy="no-referrer"
+            onClick={(e) => e.stopPropagation()}
+            className="max-w-full max-h-[88vh] rounded-xl object-contain shadow-2xl"
+          />
+        </div>
+      )}
     </div>
   );
 };

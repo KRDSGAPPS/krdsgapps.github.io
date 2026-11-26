@@ -105,6 +105,9 @@ export default function App() {
             playStoreUrl: String(data.playStoreUrl || ''),
             githubUrl: String(data.githubUrl || ''),
             iconUrl: String(data.iconUrl || ''),
+            screenshots: Array.isArray(data.screenshots)
+              ? data.screenshots.map(String).filter(Boolean).slice(0, 6)
+              : [],
             privacyPolicyEn: String(data.privacyPolicyEn || ''),
             privacyPolicyKu: String(data.privacyPolicyKu || ''),
             accountDeletionInfo: String(data.accountDeletionInfo || ''),
@@ -698,6 +701,37 @@ export default function App() {
                           <p className="text-sm text-zinc-600 dark:text-zinc-400 leading-relaxed line-clamp-3">
                             {summary}
                           </p>
+
+                          {app.screenshots && app.screenshots.length > 0 && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSelectedApp(app);
+                                setModalInitialTab('overview');
+                              }}
+                              className="w-full grid grid-cols-3 gap-1.5 pt-1 text-left group"
+                              aria-label={isKu ? 'بینینی وێنەکانی بەرنامە' : 'View app screenshots'}
+                            >
+                              {app.screenshots.slice(0, 3).map((src, idx) => (
+                                <div
+                                  key={`${src.slice(0, 32)}-${idx}`}
+                                  className="relative aspect-video rounded-lg overflow-hidden border border-zinc-200 dark:border-zinc-800 bg-zinc-100 dark:bg-zinc-950"
+                                >
+                                  <img
+                                    src={src}
+                                    alt={`${title} preview ${idx + 1}`}
+                                    referrerPolicy="no-referrer"
+                                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
+                                  />
+                                  {idx === 2 && app.screenshots!.length > 3 && (
+                                    <div className="absolute inset-0 bg-black/55 flex items-center justify-center text-xs font-semibold text-white">
+                                      +{app.screenshots!.length - 3}
+                                    </div>
+                                  )}
+                                </div>
+                              ))}
+                            </button>
+                          )}
                         </div>
 
                         <div className="mt-6 pt-4 border-t border-zinc-200 dark:border-zinc-800 flex items-center justify-between gap-3">
@@ -1025,6 +1059,10 @@ export default function App() {
         initialTab={modalInitialTab}
         lang={lang}
         settings={settings}
+        onRequestProject={() => {
+          setSelectedApp(null);
+          navigateTo('about');
+        }}
         onClose={() => setSelectedApp(null)}
       />
 

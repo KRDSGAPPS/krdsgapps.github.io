@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Smartphone } from 'lucide-react';
 
 interface AppArtworkProps {
@@ -15,6 +15,10 @@ export const AppArtwork: React.FC<AppArtworkProps> = ({
   className = 'w-16 h-16 rounded-xl',
 }) => {
   const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    setFailed(false);
+  }, [iconUrl]);
 
   const initials = title
     .replace(/[^\p{L}\p{N}\s]/gu, '')

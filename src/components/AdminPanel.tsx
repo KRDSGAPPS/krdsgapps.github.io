@@ -1,25 +1,33 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Check,
   Copy,
   Database,
   Download,
   Edit3,
+  Inbox,
   LogIn,
   LogOut,
   Plus,
   Save,
   Sparkles,
   Trash2,
+  Upload,
   X,
 } from 'lucide-react';
 import { signInWithPopup, signOut, User } from 'firebase/auth';
+import { getDownloadURL, ref as storageRef, uploadBytes } from 'firebase/storage';
 import {
+  collection,
   deleteDoc,
   doc,
   getDoc,
+  onSnapshot,
+  orderBy,
+  query,
   serverTimestamp,
   setDoc,
+  Timestamp,
   updateDoc,
   writeBatch,
 } from 'firebase/firestore';
@@ -29,6 +37,7 @@ import {
   googleProvider,
   handleFirestoreError,
   OperationType,
+  storage,
 } from '../firebase';
 import {
   ADMIN_EMAIL,
@@ -50,6 +59,26 @@ interface AdminPanelProps {
   onClose: () => void;
 }
 
+interface ProjectRequestItem {
+  id: string;
+  clientName: string;
+  contactInfo: string;
+  platform: 'android' | 'desktop' | 'both';
+  projectTitle: string;
+  message: string;
+  status: 'new' | 'reviewed' | 'done';
+  createdAt?: Timestamp | null;
+}
+
+const PRESET_CATEGORIES = [
+  'Utility',
+  'Desktop / PC',
+  'Business',
+  'Health',
+  'Finance',
+  'Game',
+];
+
 const emptyAppDraft = (nextOrder: number): AppItem => ({
   id: '',
   slug: '',
@@ -63,6 +92,7 @@ const emptyAppDraft = (nextOrder: number): AppItem => ({
   playStoreUrl: '',
   githubUrl: '',
   iconUrl: '',
+  screenshots: [],
   privacyPolicyEn: '',
   privacyPolicyKu: '',
   accountDeletionInfo:
@@ -82,6 +112,47 @@ function sanitizeSlug(raw: string): string {
     .slice(0, 80);
 }
 
+async function resizeImageToDataUrl(
+  file: File,
+  maxSize = 160,
+  maxLength = 45000
+): Promise<string> {
+  const bitmapUrl = URL.createObjectURL(file);
+  try {
+    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const el = new Image();
+      el.onload = () => resolve(el);
+      el.onerror = () => reject(new Error('Invalid image file'));
+      el.src = bitmapUrl;
+    });
+
+    const scale = Math.min(1, maxSize / Math.max(img.width, img.height));
+    const width = Math.max(1, Math.round(img.width * scale));
+    const height = Math.max(1, Math.round(img.height * scale));
+
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('Canvas not supported');
+    ctx.drawImage(img, 0, 0, width, height);
+
+    for (const quality of [0.85, 0.72, 0.58, 0.45]) {
+      const webp = canvas.toDataURL('image/webp', quality);
+      if (webp.startsWith('data:image/webp') && webp.length <= maxLength) {
+        return webp;
+      }
+      const jpeg = canvas.toDataURL('image/jpeg', quality);
+      if (jpeg.length <= maxLength) {
+        return jpeg;
+      }
+    }
+    return canvas.toDataURL('image/jpeg', 0.4);
+  } finally {
+    URL.revokeObjectURL(bitmapUrl);
+  }
+}
+
 export const AdminPanel: React.FC<AdminPanelProps> = ({
   lang,
   user,
@@ -91,11 +162,15 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   onClose,
 }) => {
   const isKu = lang === 'ku';
-  const [adminTab, setAdminTab] = useState<'apps' | 'profile' | 'console'>('apps');
+  const [adminTab, setAdminTab] = useState<'apps' | 'requests' | 'profile' | 'console'>('apps');
+  const [requests, setRequests] = useState<ProjectRequestItem[]>([]);
   const [editingApp, setEditingApp] = useState<AppItem | null>(null);
   const [isNewApp, setIsNewApp] = useState(false);
   const [profileDraft, setProfileDraft] = useState<DeveloperSettings>(settings);
   const [busy, setBusy] = useState(false);
+  const [uploadingIcon, setUploadingIcon] = useState(false);
+  const [uploadingShots, setUploadingShots] = useState(false);
+  const [newShotUrl, setNewShotUrl] = useState('');
   const [feedback, setFeedback] = useState<{ type: 'ok' | 'err'; text: string } | null>(
     null
   );
@@ -105,6 +180,44 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const isAuthorizedAdmin =
     Boolean(user?.emailVerified) &&
     user?.email?.toLowerCase() === ADMIN_EMAIL.toLowerCase();
+
+  useEffect(() => {
+    if (!isAuthorizedAdmin) {
+      setRequests([]);
+      return;
+    }
+    const q = query(collection(db, 'requests'), orderBy('createdAt', 'desc'));
+    const unsub = onSnapshot(
+      q,
+      (snap) => {
+        setRequests(
+          snap.docs.map((d) => {
+            const data = d.data();
+            return {
+              id: d.id,
+              clientName: String(data.clientName || ''),
+              contactInfo: String(data.contactInfo || ''),
+              platform:
+                data.platform === 'desktop' || data.platform === 'both'
+                  ? data.platform
+                  : 'android',
+              projectTitle: String(data.projectTitle || ''),
+              message: String(data.message || ''),
+              status:
+                data.status === 'reviewed' || data.status === 'done'
+                  ? data.status
+                  : 'new',
+              createdAt: (data.createdAt as Timestamp | undefined) ?? null,
+            };
+          })
+        );
+      },
+      () => {
+        // Ignore listener errors when closing or unauthorized
+      }
+    );
+    return () => unsub();
+  }, [isAuthorizedAdmin]);
 
   const notify = (type: 'ok' | 'err', text: string) => {
     setFeedback({ type, text });
@@ -247,7 +360,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         summaryEn: editingApp.summaryEn.trim().slice(0, 600),
         playStoreUrl: editingApp.playStoreUrl.trim().slice(0, 400),
         githubUrl: editingApp.githubUrl.trim().slice(0, 400),
-        iconUrl: editingApp.iconUrl.trim().slice(0, 500),
+        iconUrl: editingApp.iconUrl.trim().slice(0, 50000),
+        screenshots: (editingApp.screenshots || [])
+          .map((s) => s.trim())
+          .filter(Boolean)
+          .slice(0, 6),
         privacyPolicyEn: (
           editingApp.privacyPolicyEn.trim() ||
           buildPrivacyPolicyEn(
@@ -311,6 +428,29 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       handleFirestoreError(error, OperationType.DELETE, `apps/${appId}`);
     } finally {
       setBusy(false);
+    }
+  };
+
+  const handleUpdateRequestStatus = async (
+    requestId: string,
+    status: 'new' | 'reviewed' | 'done'
+  ) => {
+    if (!user || !isAuthorizedAdmin) return;
+    try {
+      await updateDoc(doc(db, 'requests', requestId), { status });
+      notify('ok', isKu ? 'دۆخی داواکاری نوێکرایەوە.' : 'Request status updated.');
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `requests/${requestId}`);
+    }
+  };
+
+  const handleDeleteRequest = async (requestId: string) => {
+    if (!user || !isAuthorizedAdmin) return;
+    try {
+      await deleteDoc(doc(db, 'requests', requestId));
+      notify('ok', isKu ? 'داواکارییەکە سڕایەوە.' : 'Request deleted.');
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, `requests/${requestId}`);
     }
   };
 
@@ -388,6 +528,105 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         editingApp.dataCollected
       ),
     });
+  };
+
+  const handleIconUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file || !editingApp) return;
+    if (!file.type.startsWith('image/')) {
+      notify('err', isKu ? 'تکایە تەنها فایلی وێنە هەڵبژێرە.' : 'Please select an image file.');
+      return;
+    }
+
+    setUploadingIcon(true);
+    try {
+      const safeName = sanitizeSlug(editingApp.slug || editingApp.titleEn || 'app') || 'app';
+      const ext = (file.name.split('.').pop() || 'png').replace(/[^a-z0-9]/gi, '').slice(0, 6) || 'png';
+      try {
+        const ref = storageRef(storage, `app-icons/${safeName}-${Date.now()}.${ext}`);
+        await uploadBytes(ref, file);
+        const url = await getDownloadURL(ref);
+        setEditingApp((prev) => (prev ? { ...prev, iconUrl: url } : prev));
+        notify('ok', isKu ? 'وێنەی ئایکۆن ئەپلۆد کرا.' : 'Icon uploaded to storage.');
+      } catch {
+        const dataUrl = await resizeImageToDataUrl(file);
+        setEditingApp((prev) => (prev ? { ...prev, iconUrl: dataUrl } : prev));
+        notify(
+          'ok',
+          isKu
+            ? 'وێنەی ئایکۆن ئامادەکرا (بۆ پاشەکەوتکردن Save دابگرە).'
+            : 'Icon image prepared (click Save to store).'
+        );
+      }
+    } catch (err) {
+      notify(
+        'err',
+        err instanceof Error
+          ? err.message
+          : isKu
+            ? 'نەتوانرا وێنەکە ئەپلۆد بکرێت.'
+            : 'Failed to process icon image.'
+      );
+    } finally {
+      setUploadingIcon(false);
+    }
+  };
+
+  const handleScreenshotsUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    e.target.value = '';
+    if (!files.length || !editingApp) return;
+
+    const current = editingApp.screenshots || [];
+    const remaining = Math.max(0, 6 - current.length);
+    if (remaining === 0) {
+      notify('err', isKu ? 'زیاتر لە ٦ وێنە ناتوانیت زیاد بکەیت.' : 'Maximum 6 screenshots allowed.');
+      return;
+    }
+
+    setUploadingShots(true);
+    try {
+      const safeName = sanitizeSlug(editingApp.slug || editingApp.titleEn || 'app') || 'app';
+      const added: string[] = [];
+      for (const file of files.slice(0, remaining)) {
+        if (!file.type.startsWith('image/')) continue;
+        const ext = (file.name.split('.').pop() || 'jpg').replace(/[^a-z0-9]/gi, '').slice(0, 6) || 'jpg';
+        try {
+          const ref = storageRef(storage, `app-screenshots/${safeName}-${Date.now()}-${added.length}.${ext}`);
+          await uploadBytes(ref, file);
+          const url = await getDownloadURL(ref);
+          added.push(url);
+        } catch {
+          const dataUrl = await resizeImageToDataUrl(file, 720, 120000);
+          added.push(dataUrl);
+        }
+      }
+      if (added.length > 0) {
+        setEditingApp((prev) =>
+          prev
+            ? { ...prev, screenshots: [...(prev.screenshots || []), ...added].slice(0, 6) }
+            : prev
+        );
+        notify(
+          'ok',
+          isKu
+            ? `${added.length} وێنە زیادکرا.`
+            : `${added.length} screenshot(s) added.`
+        );
+      }
+    } catch (err) {
+      notify(
+        'err',
+        err instanceof Error
+          ? err.message
+          : isKu
+            ? 'نەتوانرا وێنەکان ئەپلۆد بکرێن.'
+            : 'Failed to upload screenshots.'
+      );
+    } finally {
+      setUploadingShots(false);
+    }
   };
 
   const copyText = async (key: string, value: string) => {
@@ -521,6 +760,27 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   {isKu
                     ? `ئەپەکان (${apps.length})`
                     : `Applications (${apps.length})`}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAdminTab('requests');
+                    setEditingApp(null);
+                  }}
+                  className={`inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-medium rounded-lg transition-colors whitespace-nowrap ${
+                    adminTab === 'requests'
+                      ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900'
+                      : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100'
+                  }`}
+                >
+                  <span>
+                    {isKu ? 'داواکارییەکان' : 'Requests'}
+                  </span>
+                  {requests.filter((r) => r.status === 'new').length > 0 && (
+                    <span className="px-1.5 py-0.5 text-[10px] font-bold rounded-full bg-blue-600 text-white">
+                      {requests.filter((r) => r.status === 'new').length}
+                    </span>
+                  )}
                 </button>
                 <button
                   type="button"
@@ -798,37 +1058,75 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                       </select>
                     </label>
 
-                    <div className="grid grid-cols-2 gap-3">
-                      <label className="block space-y-1.5">
-                        <span className="text-xs font-medium text-zinc-700 dark:text-zinc-300">
-                          {isKu ? 'جۆر' : 'Category'}
-                        </span>
-                        <input
-                          type="text"
-                          required
-                          maxLength={60}
-                          value={editingApp.category}
-                          onChange={(e) =>
-                            setEditingApp({ ...editingApp, category: e.target.value })
-                          }
-                          className="w-full px-3 py-2 text-sm rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-950"
-                        />
-                      </label>
-                      <label className="block space-y-1.5">
-                        <span className="text-xs font-medium text-zinc-700 dark:text-zinc-300">
-                          {isKu ? 'وەشان' : 'Version'}
-                        </span>
-                        <input
-                          type="text"
-                          maxLength={30}
-                          dir="ltr"
-                          value={editingApp.version}
-                          onChange={(e) =>
-                            setEditingApp({ ...editingApp, version: e.target.value })
-                          }
-                          className="w-full px-3 py-2 text-sm font-mono rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-950"
-                        />
-                      </label>
+                    <div className="space-y-2">
+                      <div className="grid grid-cols-3 gap-3">
+                        <label className="block space-y-1.5">
+                          <span className="text-xs font-medium text-zinc-700 dark:text-zinc-300">
+                            {isKu ? 'جۆر' : 'Category'}
+                          </span>
+                          <input
+                            type="text"
+                            required
+                            maxLength={60}
+                            value={editingApp.category}
+                            onChange={(e) =>
+                              setEditingApp({ ...editingApp, category: e.target.value })
+                            }
+                            className="w-full px-3 py-2 text-sm rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-950"
+                          />
+                        </label>
+                        <label className="block space-y-1.5">
+                          <span className="text-xs font-medium text-zinc-700 dark:text-zinc-300">
+                            {isKu ? 'وەشان' : 'Version'}
+                          </span>
+                          <input
+                            type="text"
+                            maxLength={30}
+                            dir="ltr"
+                            value={editingApp.version}
+                            onChange={(e) =>
+                              setEditingApp({ ...editingApp, version: e.target.value })
+                            }
+                            className="w-full px-3 py-2 text-sm font-mono rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-950"
+                          />
+                        </label>
+                        <label className="block space-y-1.5">
+                          <span className="text-xs font-medium text-zinc-700 dark:text-zinc-300">
+                            {isKu ? 'ڕیزبەندی' : 'Sort Order'}
+                          </span>
+                          <input
+                            type="number"
+                            required
+                            dir="ltr"
+                            value={editingApp.sortOrder}
+                            onChange={(e) =>
+                              setEditingApp({
+                                ...editingApp,
+                                sortOrder: Number(e.target.value) || 0,
+                              })
+                            }
+                            className="w-full px-3 py-2 text-sm font-mono rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-950"
+                          />
+                        </label>
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {PRESET_CATEGORIES.map((cat) => (
+                          <button
+                            key={cat}
+                            type="button"
+                            onClick={() =>
+                              setEditingApp({ ...editingApp, category: cat })
+                            }
+                            className={`px-2 py-0.5 text-[11px] rounded-md border transition-colors ${
+                              editingApp.category === cat
+                                ? 'border-blue-600 bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300'
+                                : 'border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800'
+                            }`}
+                          >
+                            {cat}
+                          </button>
+                        ))}
+                      </div>
                     </div>
 
                     <label className="block space-y-1.5">
@@ -864,25 +1162,70 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     </label>
                   </div>
 
-                  {/* Icon Picker */}
-                  <div className="space-y-2">
-                    <label className="block space-y-1.5">
-                      <span className="text-xs font-medium text-zinc-700 dark:text-zinc-300">
-                        {isKu
-                          ? 'لینکی ئایکۆن (یان یەکێک لە وێنە ئامادەکان هەڵبژێرە)'
-                          : 'App Icon URL (or select a preset artwork)'}
-                      </span>
-                      <input
-                        type="text"
-                        maxLength={500}
-                        dir="ltr"
-                        value={editingApp.iconUrl}
-                        onChange={(e) =>
-                          setEditingApp({ ...editingApp, iconUrl: e.target.value })
+                  {/* Icon Picker & Upload */}
+                  <div className="space-y-3">
+                    <span className="block text-xs font-medium text-zinc-700 dark:text-zinc-300">
+                      {isKu
+                        ? 'ئایکۆنی ئەپ (لینک دابنێ، یان وێنە ئەپلۆد بکە، یان بەتاڵی بهێڵەرەوە)'
+                        : 'App Icon (paste URL, upload image, or leave empty)'}
+                    </span>
+                    <div className="flex flex-wrap items-center gap-3">
+                      <AppArtwork
+                        iconUrl={editingApp.iconUrl}
+                        title={
+                          (isKu ? editingApp.titleKu : editingApp.titleEn) ||
+                          editingApp.titleEn ||
+                          'App'
                         }
-                        className="w-full px-3 py-2 text-sm font-mono rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-950"
+                        category={editingApp.category}
+                        className="w-14 h-14 rounded-xl"
                       />
-                    </label>
+                      <div className="flex-1 min-w-[220px] flex flex-wrap items-center gap-2">
+                        <input
+                          type="text"
+                          maxLength={50000}
+                          dir="ltr"
+                          placeholder={
+                            isKu
+                              ? 'https://... (ئەگەر بەتاڵ بێت دواتر دەتوانیت ئیدیتی بکەیت)'
+                              : 'https://... (optional — stays empty until edited)'
+                          }
+                          value={editingApp.iconUrl}
+                          onChange={(e) =>
+                            setEditingApp({ ...editingApp, iconUrl: e.target.value })
+                          }
+                          className="flex-1 min-w-[180px] px-3 py-2 text-sm font-mono rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-950"
+                        />
+                        <label className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg cursor-pointer transition-colors shrink-0">
+                          <Upload className="w-3.5 h-3.5" />
+                          <span>
+                            {uploadingIcon
+                              ? isKu
+                                ? 'ئەپلۆد...'
+                                : 'Uploading...'
+                              : isKu
+                                ? 'ئەپلۆدی وێنە'
+                                : 'Upload Image'}
+                          </span>
+                          <input
+                            type="file"
+                            accept="image/*"
+                            disabled={uploadingIcon || busy}
+                            onChange={handleIconUpload}
+                            className="hidden"
+                          />
+                        </label>
+                        {editingApp.iconUrl && (
+                          <button
+                            type="button"
+                            onClick={() => setEditingApp({ ...editingApp, iconUrl: '' })}
+                            className="px-3 py-2 text-xs font-medium text-zinc-600 dark:text-zinc-300 border border-zinc-200 dark:border-zinc-700 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 shrink-0"
+                          >
+                            {isKu ? 'بەتاڵکردن' : 'Clear'}
+                          </button>
+                        )}
+                      </div>
+                    </div>
                     <div className="flex flex-wrap items-center gap-2">
                       {PRESET_APP_ICONS.map((preset) => (
                         <button
@@ -906,6 +1249,97 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                         </button>
                       ))}
                     </div>
+                  </div>
+
+                  {/* Screenshots Gallery Uploader */}
+                  <div className="space-y-3 pt-2 border-t border-zinc-200 dark:border-zinc-800">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="text-xs font-medium text-zinc-700 dark:text-zinc-300">
+                        {isKu
+                          ? `وێنەکانی ناو بەرنامە / سکرینشۆتەکان (${(editingApp.screenshots || []).length}/6)`
+                          : `App / Software Screenshots (${(editingApp.screenshots || []).length}/6)`}
+                      </span>
+                      <label className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-teal-600 hover:bg-teal-700 rounded-lg cursor-pointer transition-colors">
+                        <Upload className="w-3.5 h-3.5" />
+                        <span>
+                          {uploadingShots
+                            ? isKu
+                              ? 'ئەپلۆد...'
+                              : 'Uploading...'
+                            : isKu
+                              ? 'ئەپلۆدی وێنەکان'
+                              : 'Upload Screenshots'}
+                        </span>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          multiple
+                          disabled={uploadingShots || busy || (editingApp.screenshots || []).length >= 6}
+                          onChange={handleScreenshotsUpload}
+                          className="hidden"
+                        />
+                      </label>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2">
+                      <input
+                        type="url"
+                        dir="ltr"
+                        value={newShotUrl}
+                        onChange={(e) => setNewShotUrl(e.target.value)}
+                        placeholder={
+                          isKu ? 'لینکی وێنەیەک دابنێ (ئارەزوومەندانە)...' : 'Paste screenshot image URL (optional)...'
+                        }
+                        className="flex-1 min-w-[200px] px-3 py-1.5 text-xs font-mono rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-950"
+                      />
+                      <button
+                        type="button"
+                        disabled={!newShotUrl.trim() || (editingApp.screenshots || []).length >= 6}
+                        onClick={() => {
+                          const url = newShotUrl.trim();
+                          if (!url) return;
+                          setEditingApp({
+                            ...editingApp,
+                            screenshots: [...(editingApp.screenshots || []), url].slice(0, 6),
+                          });
+                          setNewShotUrl('');
+                        }}
+                        className="px-3 py-1.5 text-xs font-medium border border-zinc-200 dark:border-zinc-700 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 disabled:opacity-50"
+                      >
+                        {isKu ? 'زیادکردنی لینک' : 'Add URL'}
+                      </button>
+                    </div>
+
+                    {editingApp.screenshots && editingApp.screenshots.length > 0 && (
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+                        {editingApp.screenshots.map((shot, idx) => (
+                          <div
+                            key={`${shot.slice(0, 32)}-${idx}`}
+                            className="relative group aspect-video rounded-lg overflow-hidden border border-zinc-200 dark:border-zinc-700 bg-zinc-100 dark:bg-zinc-950"
+                          >
+                            <img
+                              src={shot}
+                              alt={`Screenshot ${idx + 1}`}
+                              referrerPolicy="no-referrer"
+                              className="w-full h-full object-cover"
+                            />
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setEditingApp({
+                                  ...editingApp,
+                                  screenshots: (editingApp.screenshots || []).filter((_, i) => i !== idx),
+                                })
+                              }
+                              aria-label={isKu ? 'لابردن' : 'Remove'}
+                              className="absolute top-1.5 right-1.5 p-1 rounded-md bg-black/70 text-white hover:bg-red-600 transition-colors"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1056,6 +1490,92 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     </button>
                   </div>
                 </form>
+              )}
+
+              {adminTab === 'requests' && (
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm text-zinc-600 dark:text-zinc-400">
+                      {isKu
+                        ? 'داواکارییەکانی کڕیاران کە لە وێبسایتەوە نێردراون:'
+                        : 'Client project requests submitted from your website:'}
+                    </p>
+                  </div>
+                  {requests.length === 0 ? (
+                    <div className="py-12 text-center border border-dashed border-zinc-200 dark:border-zinc-800 rounded-xl space-y-2">
+                      <Inbox className="w-8 h-8 mx-auto text-zinc-400" />
+                      <p className="text-sm text-zinc-500 dark:text-zinc-400">
+                        {isKu
+                          ? 'هێشتا هیچ داواکارییەک نییە.'
+                          : 'No client requests yet.'}
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {requests.map((req) => (
+                        <div
+                          key={req.id}
+                          className="p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-950/50 space-y-3"
+                        >
+                          <div className="flex flex-wrap items-start justify-between gap-3">
+                            <div className="space-y-1">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <h4 className="text-sm font-bold text-zinc-900 dark:text-zinc-100">
+                                  {req.projectTitle}
+                                </h4>
+                                <span className="px-2 py-0.5 text-[11px] font-medium rounded-md bg-zinc-200/70 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300">
+                                  {req.platform === 'desktop'
+                                    ? isKu
+                                      ? 'بەرنامەی کۆمپیوتەر'
+                                      : 'Desktop / PC'
+                                    : req.platform === 'both'
+                                      ? isKu
+                                        ? 'مۆبایل + کۆمپیوتەر'
+                                        : 'Mobile + Desktop'
+                                      : isKu
+                                        ? 'ئەپی ئەندرۆید'
+                                        : 'Android App'}
+                                </span>
+                              </div>
+                              <p className="text-xs text-zinc-600 dark:text-zinc-400">
+                                {req.clientName} · <span dir="ltr">{req.contactInfo}</span>
+                              </p>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <select
+                                value={req.status}
+                                onChange={(e) =>
+                                  handleUpdateRequestStatus(
+                                    req.id,
+                                    e.target.value as 'new' | 'reviewed' | 'done'
+                                  )
+                                }
+                                className="px-2.5 py-1 text-xs rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900"
+                              >
+                                <option value="new">{isKu ? 'نوێ' : 'New'}</option>
+                                <option value="reviewed">
+                                  {isKu ? 'پێداچوونەوەی بۆ کرا' : 'Reviewed'}
+                                </option>
+                                <option value="done">{isKu ? 'تەواوبوو' : 'Done'}</option>
+                              </select>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteRequest(req.id)}
+                                aria-label={isKu ? 'سڕینەوە' : 'Delete'}
+                                className="p-1.5 text-zinc-500 hover:text-red-600 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </div>
+                          <p className="text-xs text-zinc-700 dark:text-zinc-300 leading-relaxed whitespace-pre-wrap">
+                            {req.message}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
               )}
 
               {adminTab === 'profile' && (
@@ -1223,6 +1743,53 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                         className="w-full px-3 py-2 text-sm rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-950"
                       />
                     </label>
+                    <label className="block space-y-1.5">
+                      <span className="text-xs font-medium text-zinc-700 dark:text-zinc-300">
+                        {isKu ? 'ناونیشانی کار / ڕۆڵ (کوردی)' : 'Developer Role (Kurdish)'}
+                      </span>
+                      <input
+                        type="text"
+                        maxLength={160}
+                        value={profileDraft.roleKu}
+                        onChange={(e) =>
+                          setProfileDraft({ ...profileDraft, roleKu: e.target.value })
+                        }
+                        className="w-full px-3 py-2 text-sm rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-950"
+                      />
+                    </label>
+                    <label className="block space-y-1.5">
+                      <span className="text-xs font-medium text-zinc-700 dark:text-zinc-300">
+                        {isKu ? 'ناونیشانی کار / ڕۆڵ (ئینگلیزی)' : 'Developer Role (English)'}
+                      </span>
+                      <input
+                        type="text"
+                        maxLength={160}
+                        dir="ltr"
+                        value={profileDraft.roleEn}
+                        onChange={(e) =>
+                          setProfileDraft({ ...profileDraft, roleEn: e.target.value })
+                        }
+                        className="w-full px-3 py-2 text-sm rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-950"
+                      />
+                    </label>
+                    <label className="block space-y-1.5">
+                      <span className="text-xs font-medium text-zinc-700 dark:text-zinc-300">
+                        GitHub Profile URL
+                      </span>
+                      <input
+                        type="url"
+                        maxLength={400}
+                        dir="ltr"
+                        value={profileDraft.githubProfileUrl}
+                        onChange={(e) =>
+                          setProfileDraft({
+                            ...profileDraft,
+                            githubProfileUrl: e.target.value,
+                          })
+                        }
+                        className="w-full px-3 py-2 text-sm rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-950"
+                      />
+                    </label>
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1272,6 +1839,48 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                       className="w-full px-3 py-2 text-xs font-mono rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-950"
                     />
                   </label>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <label className="block space-y-1.5">
+                      <span className="text-xs font-medium text-zinc-700 dark:text-zinc-300">
+                        {isKu
+                          ? 'سیاسەتی نهێنی گشتی (ئینگلیزی)'
+                          : 'Global Privacy Policy (English)'}
+                      </span>
+                      <textarea
+                        rows={5}
+                        maxLength={15000}
+                        dir="ltr"
+                        value={profileDraft.globalPrivacyPolicyEn}
+                        onChange={(e) =>
+                          setProfileDraft({
+                            ...profileDraft,
+                            globalPrivacyPolicyEn: e.target.value,
+                          })
+                        }
+                        className="w-full px-3 py-2 text-xs leading-relaxed rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-950"
+                      />
+                    </label>
+                    <label className="block space-y-1.5">
+                      <span className="text-xs font-medium text-zinc-700 dark:text-zinc-300">
+                        {isKu
+                          ? 'سیاسەتی نهێنی گشتی (کوردی)'
+                          : 'Global Privacy Policy (Kurdish)'}
+                      </span>
+                      <textarea
+                        rows={5}
+                        maxLength={15000}
+                        value={profileDraft.globalPrivacyPolicyKu}
+                        onChange={(e) =>
+                          setProfileDraft({
+                            ...profileDraft,
+                            globalPrivacyPolicyKu: e.target.value,
+                          })
+                        }
+                        className="w-full px-3 py-2 text-xs leading-relaxed rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-950"
+                      />
+                    </label>
+                  </div>
 
                   <div className="flex items-center justify-between pt-3 border-t border-zinc-200 dark:border-zinc-800">
                     <button

@@ -47,9 +47,10 @@ service cloud.firestore {
         && data.keys().hasOnly([
           'slug', 'titleKu', 'titleEn', 'packageId', 'status', 'category',
           'summaryKu', 'summaryEn', 'playStoreUrl', 'githubUrl', 'iconUrl',
-          'privacyPolicyEn', 'privacyPolicyKu', 'accountDeletionInfo',
+          'screenshots', 'privacyPolicyEn', 'privacyPolicyKu', 'accountDeletionInfo',
           'dataCollected', 'version', 'sortOrder', 'ownerUid', 'createdAt', 'updatedAt'
         ])
+        && (!data.keys().hasAny(['screenshots']) || (data.screenshots is list && data.screenshots.size() <= 6))
         && data.slug is string && data.slug.size() >= 2 && data.slug.size() <= 80 && data.slug.matches('^[a-z0-9\\-]+$')
         && data.titleKu is string && data.titleKu.size() >= 1 && data.titleKu.size() <= 120
         && data.titleEn is string && data.titleEn.size() >= 1 && data.titleEn.size() <= 120
@@ -60,7 +61,7 @@ service cloud.firestore {
         && data.summaryEn is string && data.summaryEn.size() <= 600
         && data.playStoreUrl is string && data.playStoreUrl.size() <= 400
         && data.githubUrl is string && data.githubUrl.size() <= 400
-        && data.iconUrl is string && data.iconUrl.size() <= 500
+        && data.iconUrl is string && data.iconUrl.size() <= 50000
         && data.privacyPolicyEn is string && data.privacyPolicyEn.size() <= 12000
         && data.privacyPolicyKu is string && data.privacyPolicyKu.size() <= 12000
         && data.accountDeletionInfo is string && data.accountDeletionInfo.size() <= 2000
@@ -127,7 +128,7 @@ service cloud.firestore {
         && incoming().diff(existing()).affectedKeys().hasOnly([
           'slug', 'titleKu', 'titleEn', 'packageId', 'status', 'category',
           'summaryKu', 'summaryEn', 'playStoreUrl', 'githubUrl', 'iconUrl',
-          'privacyPolicyEn', 'privacyPolicyKu', 'accountDeletionInfo',
+          'screenshots', 'privacyPolicyEn', 'privacyPolicyKu', 'accountDeletionInfo',
           'dataCollected', 'version', 'sortOrder', 'updatedAt'
         ]);
       allow delete: if isAdmin() && isValidId(appId);

@@ -17,6 +17,7 @@ export interface AppItem {
   playStoreUrl: string;
   githubUrl: string;
   iconUrl: string;
+  screenshots?: string[];
   privacyPolicyEn: string;
   privacyPolicyKu: string;
   accountDeletionInfo: string;
