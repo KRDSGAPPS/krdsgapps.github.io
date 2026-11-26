@@ -41,10 +41,12 @@ import {
 } from '../firebase';
 import {
   ADMIN_EMAIL,
+  ADMIN_EMAILS,
   buildPrivacyPolicyEn,
   buildPrivacyPolicyKu,
   DEFAULT_APPS,
   DEFAULT_DEVELOPER_SETTINGS,
+  isAdminEmail,
   PRESET_APP_ICONS,
 } from '../data/defaultSeed';
 import { AppItem, AppStatus, DeveloperSettings, Language } from '../types';
@@ -210,8 +212,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
   const isAuthorizedAdmin =
-    Boolean(user?.emailVerified) &&
-    user?.email?.toLowerCase() === ADMIN_EMAIL.toLowerCase();
+    Boolean(user?.emailVerified) && isAdminEmail(user?.email);
 
   useEffect(() => {
     if (!isAuthorizedAdmin) {
@@ -740,8 +741,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               </h3>
               <p className="text-sm text-zinc-600 dark:text-zinc-400 leading-relaxed">
                 {isKu
-                  ? `بۆ دەستکاریکردن و زیادکردنی ئەپەکان، بە هەژماری گۆگڵی فەرمی (${ADMIN_EMAIL}) بچۆ ژوورەوە.`
-                  : `Sign in with the verified developer Google account (${ADMIN_EMAIL}) to edit or publish updates.`}
+                  ? `بۆ دەستکاریکردن و زیادکردنی ئەپەکان، بە هەژماری گۆگڵی فەرمی (${ADMIN_EMAILS.join(' یان ')}) بچۆ ژوورەوە.`
+                  : `Sign in with the verified developer Google account (${ADMIN_EMAILS.join(' or ')}) to edit or publish updates.`}
               </p>
             </div>
             <button
@@ -763,8 +764,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             </h3>
             <p className="text-sm text-zinc-600 dark:text-zinc-400">
               {isKu
-                ? `ئێستا بە (${user.email}) چوویتەتە ژوورەوە. تەنها هەژماری (${ADMIN_EMAIL}) دەتوانێت گۆڕانکاری بکات.`
-                : `Signed in as ${user.email}. Only ${ADMIN_EMAIL} is authorized to modify this portal.`}
+                ? `ئێستا بە (${user.email}) چوویتەتە ژوورەوە. تەنها هەژماری (${ADMIN_EMAILS.join(' یان ')}) دەتوانێت گۆڕانکاری بکات.`
+                : `Signed in as ${user.email}. Only ${ADMIN_EMAILS.join(' or ')} is authorized to modify this portal.`}
             </p>
             <button
               type="button"

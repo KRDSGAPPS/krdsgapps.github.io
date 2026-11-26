@@ -1,6 +1,13 @@
 import { AppItem, DeveloperSettings } from '../types';
 
 export const ADMIN_EMAIL = 'shakirgoran@gmail.com';
+export const ADMIN_EMAILS = ['shakirgoran@gmail.com', 'shakir.m.goran@gmail.com'] as const;
+
+export function isAdminEmail(email?: string | null): boolean {
+  if (!email) return false;
+  const normalized = email.trim().toLowerCase();
+  return ADMIN_EMAILS.some((allowed) => allowed.toLowerCase() === normalized);
+}
 
 export const HERO_STUDIO_IMAGE = '/src/assets/images/hero_developer_studio_1795555119546.jpg';
 
