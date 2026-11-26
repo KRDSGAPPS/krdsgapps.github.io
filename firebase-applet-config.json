@@ -1,12 +1,12 @@
 {
-  "projectId": "gothic-flux-qdrm3",
-  "appId": "1:450734844018:web:0044a68696475626c73aeb",
-  "apiKey": "AIzaSyCU3-RoNf6zfrjcZRMqOr4x36pkljEnInQ",
-  "authDomain": "gothic-flux-qdrm3.firebaseapp.com",
-  "firestoreDatabaseId": "ai-studio-b24bc21b-a4c0-482d-90c8-879e1aefeb23",
-  "storageBucket": "gothic-flux-qdrm3.firebasestorage.app",
-  "messagingSenderId": "450734844018",
+  "projectId": "sg-apps-studio-2026",
+  "appId": "1:1081973366682:web:045eeafdaaffdccf13e423",
+  "apiKey": "AIzaSyCXkkfkCVLCbdAUTeLTG2xytlGyPWLlzVg",
+  "authDomain": "sg-apps-studio-2026.firebaseapp.com",
+  "firestoreDatabaseId": "(default)",
+  "storageBucket": "sg-apps-studio-2026.firebasestorage.app",
+  "messagingSenderId": "1081973366682",
   "measurementId": "",
-  "oAuthClientId": "450734844018-fpu6p5gmlml61kf5tj4f7knnt6j6hcu1.apps.googleusercontent.com",
+  "oAuthClientId": "",
   "recaptchaSiteKey": ""
 }
