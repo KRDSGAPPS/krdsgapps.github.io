@@ -112,6 +112,38 @@ function sanitizeSlug(raw: string): string {
     .slice(0, 80);
 }
 
+let storageUploadFailed = false;
+
+async function uploadImageToStorage(
+  path: string,
+  file: File,
+  timeoutMs = 4500
+): Promise<string> {
+  if (storageUploadFailed) {
+    throw new Error('Storage unavailable');
+  }
+  const ref = storageRef(storage, path);
+  const uploadTask = (async () => {
+    await uploadBytes(ref, file);
+    return getDownloadURL(ref);
+  })();
+
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      uploadTask,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error('Storage upload timeout')), timeoutMs);
+      }),
+    ]);
+  } catch (err) {
+    storageUploadFailed = true;
+    throw err;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 async function resizeImageToDataUrl(
   file: File,
   maxSize = 160,
@@ -544,9 +576,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       const safeName = sanitizeSlug(editingApp.slug || editingApp.titleEn || 'app') || 'app';
       const ext = (file.name.split('.').pop() || 'png').replace(/[^a-z0-9]/gi, '').slice(0, 6) || 'png';
       try {
-        const ref = storageRef(storage, `app-icons/${safeName}-${Date.now()}.${ext}`);
-        await uploadBytes(ref, file);
-        const url = await getDownloadURL(ref);
+        const url = await uploadImageToStorage(
+          `app-icons/${safeName}-${Date.now()}.${ext}`,
+          file
+        );
         setEditingApp((prev) => (prev ? { ...prev, iconUrl: url } : prev));
         notify('ok', isKu ? 'وێنەی ئایکۆن ئەپلۆد کرا.' : 'Icon uploaded to storage.');
       } catch {
@@ -593,9 +626,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         if (!file.type.startsWith('image/')) continue;
         const ext = (file.name.split('.').pop() || 'jpg').replace(/[^a-z0-9]/gi, '').slice(0, 6) || 'jpg';
         try {
-          const ref = storageRef(storage, `app-screenshots/${safeName}-${Date.now()}-${added.length}.${ext}`);
-          await uploadBytes(ref, file);
-          const url = await getDownloadURL(ref);
+          const url = await uploadImageToStorage(
+            `app-screenshots/${safeName}-${Date.now()}-${added.length}.${ext}`,
+            file
+          );
           added.push(url);
         } catch {
           const dataUrl = await resizeImageToDataUrl(file, 720, 120000);
